@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>รายงานเสียง (Report)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; background: #ff4d4d; color: white; margin: 0; padding: 20px; }
+    h1 { background: #ffcc00; color: black; border-radius: 10px; padding: 10px 20px; display: inline-block; font-size: 22px; margin-bottom: 20px; }
+    h2 { background: #c0392b; color: white; padding: 8px; border-radius: 8px; font-size: 18px; margin-top: 10px; display: inline-block; }
+    .back-btn { background: #444; color: white; text-decoration: none; padding: 10px 20px; border-radius: 20px; display: inline-block; margin-bottom: 20px; border: 1px solid white; font-weight: bold; }
+    .control-panel { margin: 15px auto; background: #333; border-radius: 10px; padding: 10px 20px; width: fit-content; }
+    canvas { display: block; background: #fff; border-radius: 10px; margin: 20px auto; max-width: 800px; width: 90%; height: 350px; }
+    .stat-box { display: flex; justify-content: center; gap: 30px; margin-bottom: 20px; }
+    .stat-item { background: #e74c3c; padding: 12px 25px; border-radius: 6px; font-weight: bold; font-size: 16px; min-width: 90px; text-align: center; }
+    .daily-box { background: #444; border-radius: 10px; padding: 15px; width: 85%; max-width: 550px; margin: 20px auto; text-align: left; }
+    .frame-box { display: flex; flex-direction: column; gap: 6px; background: #222; padding: 15px; width: 85%; max-width: 550px; border-radius: 8px; margin: 25px auto; text-align: left; }
+    .frame-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; }
+    .safe { color: #00FF80; } .warn { color: #FFD700; } .danger { color: #FF4040; }
+    button { background: #ffcc00; color: black; font-weight: bold; border: none; padding: 10px 25px; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div style="text-align: left;">
+    <a href="index.html" class="back-btn">⬅️ กลับหน้าหลัก (Back)</a>
+  </div>
+
+  <h1><span>2</span>แสดงข้อมูลที่บันทึก</h1>
+
+  <h2>กราฟเสียง (ความจำ 4 ชม.)</h2>
+  <div class="control-panel">
+    <label>ระยะกราฟ: </label>
+    <select id="timeRange" style="padding: 5px;">
+      <option value="60000">1 นาที</option>
+      <option value="3600000">1 ชั่วโมง</option>
+      <option value="14400000" selected>4 ชั่วโมง (Full)</option>
+    </select>
+  </div>
+
+  <canvas id="dbChart"></canvas>
+
+  <div class="stat-box">
+    <div class="stat-item">MIN<br><span id="minVal">--</span> dB</div>
+    <div class="stat-item">MAX<br><span id="maxVal">--</span> dB</div>
+    <div class="stat-item">AVG<br><span id="avgVal">--</span> dB</div>
+  </div>
+
+  <div class="daily-box">
+    <div>ระดับเสียงเฉลี่ยวันนี้: <span id="avgToday">--</span> dB</div>
+    <div>สูงสุดที่พบ: <span id="maxToday">--</span> dB</div>
+    <button id="weeklyPdfBtn" style="margin-top:10px; background:#ff5722; color:white;">📄 โหลด PDF รายงาน</button>
+  </div>
+
+  <h2>ช่วงเวลาเก็บข้อมูล (4 ชม./Frame)</h2>
+  <div class="frame-box" id="frameContainer"></div>
+
+  <script>
+    let chart, allData = [], tempBucket = [], lastBucketTime = 0;
+    const MAX_POINTS = 14400; // 4 Hours at 1Hz
+    const channel = new BroadcastChannel("dbChannel");
+
+    channel.onmessage = (e) => {
+      const data = e.data;
+      const db = parseFloat(data.db);
+      const now = Date.now();
+
+      document.getElementById("minVal").innerText = data.min;
+      document.getElementById("maxVal").innerText = data.max;
+      document.getElementById("avgVal").innerText = data.avg;
+      document.getElementById("avgToday").innerText = data.avg;
+      document.getElementById("maxToday").innerText = data.max;
+
+      tempBucket.push(db);
+      if (now - lastBucketTime >= 1000) {
+        const avg = tempBucket.reduce((a,b)=>a+b,0)/tempBucket.length;
+        allData.push({ time: now, db: avg });
+        if(allData.length > MAX_POINTS) allData.shift();
+        tempBucket = []; lastBucketTime = now;
+        updateFrames();
+      }
+    };
+
+    setInterval(() => {
+      if (!allData.length) return;
+      const range = parseInt(document.getElementById("timeRange").value);
+      const now = Date.now();
+      const filtered = allData.filter(d => now - d.time <= range);
+      const labels = filtered.map(d => new Date(d.time).toLocaleTimeString());
+      const values = filtered.map(d => d.db);
+
+      if (!chart) {
+        chart = new Chart(document.getElementById("dbChart"), {
+          type: "line",
+          data: { labels, datasets: [{ label: "dB", data: values, borderColor: "red", pointRadius: 0, fill: true, backgroundColor: "rgba(255,0,0,0.1)" }] },
+          options: { animation: false, scales: { y: { min: 0, max: 120 } } }
+        });
+      } else {
+        chart.data.labels = labels; chart.data.datasets[0].data = values; chart.update('none');
+      }
+    }, 250);
+
+    function updateFrames() {
+      const container = document.getElementById("frameContainer");
+      const startOfDay = new Date().setHours(0,0,0,0);
+      let html = "";
+      for (let i = 0; i < 6; i++) {
+        const fStart = startOfDay + (i * 4 * 3600000);
+        const fEnd = fStart + (4 * 3600000);
+        const fData = allData.filter(d => d.time >= fStart && d.time < fEnd);
+        const avg = fData.length ? (fData.reduce((a,b)=>a+b.db,0)/fData.length).toFixed(1) : "--";
+        html += `<div class="frame-item"><span>ช่วงที่ ${i+1} (${i*4}:00)</span><span>${avg} dB</span></div>`;
+      }
+      container.innerHTML = html;
+    }
+  </script>
+</body>
+</html>

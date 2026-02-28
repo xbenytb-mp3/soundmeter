@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  displayName  String?   @map("display_name")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  sessions     Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  title     String?
+  startedAt DateTime  @default(now()) @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  minDb     Float?    @map("min_db")
+  maxDb     Float?    @map("max_db")
+  avgDb     Float?    @map("avg_db")
+  status    String    @default("recording")
+
+  user     User      @relation(fields: [userId], references: [id])
+  readings Reading[]
+
+  @@map("sessions")
+}
+
+model Reading {
+  id        BigInt   @id @default(autoincrement())
+  sessionId String   @map("session_id")
+  dbLevel   Float    @map("db_level")
+  timestamp DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, timestamp])
+  @@index([timestamp])
+  @@map("readings")
+}
